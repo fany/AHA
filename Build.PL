@@ -22,6 +22,9 @@ my $build = Module::Build->new
                       "Test::More" => "0",
                      },                       
    configure_requires => { 'Module::Build' => 0.34 },
+   recommends => {
+	          "LWP::ConsoleLogger::Easy" => 0,
+   },
    meta_add => {
        resources => {
            repository => 'https://github.com/rhuss/aha',

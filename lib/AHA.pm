@@ -1,3 +1,5 @@
+=encoding UTF-8
+
 =head1 NAME
 
 AHA - Simple access to the AHA interface for AVM based home automation
@@ -75,18 +77,16 @@ is true, if authorization fails.
 
 package AHA;
 
+use 5.01;
 use strict;
+use Carp qw(cluck confess);
 use LWP::UserAgent;
 use AHA::Switch;
 use Encode;
 use Digest::MD5;
-use Data::Dumper;
 use vars qw($VERSION);
 
-$VERSION = "0.6";
-
-# Set to one if some debugging should be printed
-my $DEBUG = 0;
+$VERSION = "0.7";
 
 =item $aha = new AHA({host => "fritz.box", password => "s!cr!t", user => "admin"})
 
@@ -126,25 +126,32 @@ the second the password and the third optionally the user.
 
 sub new {
     my $class = shift;
-    my $self = {};
+    bless my $self = { ua => LWP::UserAgent->new }, $class;
+
     my $arg1 = shift; 
     if (ref($arg1) ne "HASH") {
         $self->{host} = $arg1;
         $self->{password} = shift;
         $self->{user} = shift;
     } else {
-        map { $self->{$_} = $arg1->{$_} } qw(host password user port);
+        map { $self->{$_} = delete $arg1->{$_} } qw(host password user port);
+	my $debug = delete $arg1->{debug};
+        $self->debug($debug) if defined $debug;
+        cluck 'Unknown parameter'
+          . ( keys %$arg1 != 1 && 's' ) . ' '
+          . join( ' and ', sort keys %$arg1 ) . ' to '
+          . __PACKAGE__ . '->new'
+          if keys %$arg1;
     }
     die "No host given" unless $self->{host};
     die "No password given" unless $self->{password};
 
     my $base = $self->{port} ? $self->{host} . ":" . $self->{port} : $self->{host};
 
-    $self->{ua} = LWP::UserAgent->new;        
     $self->{login_url} = "http://" . $base . "/login_sid.lua";
     $self->{ws_url} = "http://" . $base . "/webservices/homeautoswitch.lua";
     $self->{ain_map} = {};
-    return bless $self,$class;
+    $self;
 }
 
 =item $switches = $aha->list()
@@ -298,11 +305,31 @@ sub logout {
     $req->content($login);
     my $resp = $self->{ua}->request($req);
     die "Cannot logout SID ",$self->{sid},": ",$resp->status_line unless $resp->is_success;
-    print "--- Logout ",$self->{sid} if $DEBUG;
+    print "--- Logout ",$self->{sid} if $self->debug;
     delete $self->{sid};
 }
 
-=back 
+=item $aha->debug($verbosity)
+
+Enable the output of debugging messages to standard error.
+Requires L<LWP::ConsoleLogger::Easy> to be installed.
+For details on the semantics of the C<$verbosity> argument
+please refer to its documentation.
+
+=cut
+
+sub debug {
+    my ( $self, $level ) = @_;
+    if ( defined $level ) {
+        require LWP::ConsoleLogger::Easy
+          and LWP::ConsoleLogger::Easy->import('debug_ua')
+          unless defined &debug_ua;
+        $self->{logger} = debug_ua( $self->{ua}, $level );
+    }
+    $self->{logger};
+}
+
+=back
 
 
 
@@ -327,11 +354,11 @@ sub _execute_cmd {
     my $url = $self->{ws_url} . "?sid=" . $self->_sid() . "&switchcmd=" . $cmd;
     $url .= "&ain=" . $ain if $ain;
     my $resp  = $self->{ua}->get($url);    
-    print ">>> $url\n" if $DEBUG;
+    say STDERR ">>> $url" if $self->debug;
     die "Cannot execute ",$cmd,": ",$resp->status_line unless $resp->is_success;
     my $c = $resp->content;
     chomp $c;
-    print "<<< $c\n" if $DEBUG;
+    say STDERR "<<< $c" if $self->debug;
     return $c;
 }
 
@@ -365,7 +392,9 @@ sub _sid {
     }
     $content = $resp->content();
     $self->{sid} = ($content =~ /<SID>(.*?)<\/SID>/ && $1);
-    print "-- Login, received SID ",$self->{sid} if $DEBUG;
+    say STDERR "-- Login, received SID ",$self->{sid} if $self->debug;
+    confess "Cannot login to $self->{host}; wrong credentials?\n"
+      if $self->{sid} =~ /^0+$/;
     return $self->{sid};
 }
 
@@ -402,7 +431,9 @@ along with AHA.  If not, see <http://www.gnu.org/licenses/>.
 
 =head1 AUTHOR
 
-roland@cpan.org
+Originally: roland@cpan.org
+
+Currently maintained by Martin Sluka E<lt>perl@sluka.deE<gt>
 
 =cut
 
