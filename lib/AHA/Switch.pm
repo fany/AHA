@@ -29,7 +29,9 @@ been already provided during the construction of this object.
 =cut
 
 package AHA::Switch;
-use vars qw{$AUTOLOAD};
+use vars qw{$AUTOLOAD $VERSION};
+
+$VERSION = 0.6;
 
 =item $switch = new AHA::Switch($aha,$ain)
 
